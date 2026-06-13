@@ -12,12 +12,25 @@ RULE=$(printf '\342\224\200%.0s' {1..52})
 # --local: install from the local repo checkout (overlays unsloth as editable
 # and unsloth-zoo from git main). Mirrors install.sh --local for the Colab
 # path that runs setup.sh directly without going through install.sh.
+# --vite-base-path: Vite public base for reverse-proxy subpaths (e.g. /unsloth/).
+# Also via VITE_BASE_PATH or UNSLOTH_VITE_BASE_PATH env vars.
+_VITE_BASE_PATH="${VITE_BASE_PATH:-}"
+[ -z "$_VITE_BASE_PATH" ] && [ -n "${UNSLOTH_VITE_BASE_PATH:-}" ] && _VITE_BASE_PATH="$UNSLOTH_VITE_BASE_PATH"
 if [ "$#" -gt 0 ]; then
+    _next_is_vite_base_path=false
     for _arg in "$@"; do
+        if [ "$_next_is_vite_base_path" = true ]; then
+            _VITE_BASE_PATH="$_arg"
+            _next_is_vite_base_path=false
+            continue
+        fi
         case "$_arg" in
             --local)
                 export STUDIO_LOCAL_INSTALL=1
                 export STUDIO_LOCAL_REPO="$REPO_ROOT"
+                ;;
+            --vite-base-path)
+                _next_is_vite_base_path=true
                 ;;
         esac
     done
@@ -125,6 +138,22 @@ _run_quiet() {
 
 run_quiet() {
     _run_quiet exit "$@"
+}
+
+# Normalize Vite base path: "/unsloth" -> "/unsloth/", empty -> "/".
+_normalize_vite_base_path() {
+    local raw="${1:-}"
+    raw=$(printf '%s' "$raw" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+    if [ -z "$raw" ] || [ "$raw" = "/" ]; then
+        printf '/'
+        return 0
+    fi
+    case "$raw" in
+        /*) ;;
+        *) raw="/$raw" ;;
+    esac
+    raw="${raw%/}/"
+    printf '%s' "$raw"
 }
 
 run_quiet_no_exit() {
@@ -454,6 +483,7 @@ if [ "$_LLAMA_ONLY" != "1" ]; then
 # ── Detect whether frontend needs building ──
 # Skip if SKIP_STUDIO_FRONTEND=1 (Tauri desktop app bundles its own frontend),
 # or if dist/ exists AND no tracked input is newer than dist/.
+_VITE_BASE="$(_normalize_vite_base_path "$_VITE_BASE_PATH")"
 if [ "${SKIP_STUDIO_FRONTEND:-0}" = "1" ]; then
     _NEED_FRONTEND_BUILD=false
     step "frontend" "bundled (Tauri)"
@@ -468,6 +498,16 @@ if [ -d "$SCRIPT_DIR/frontend/dist" ]; then
             -type f -newer "$SCRIPT_DIR/frontend/dist" -print -quit 2>/dev/null) || true
     fi
     [ -z "$_changed" ] && _NEED_FRONTEND_BUILD=false
+    if [ "$_NEED_FRONTEND_BUILD" = false ]; then
+        _vite_marker="$SCRIPT_DIR/frontend/dist/.vite-base"
+        _vite_marker_val=""
+        if [ -f "$_vite_marker" ]; then
+            _vite_marker_val=$(tr -d '\n' < "$_vite_marker")
+        fi
+        if [ "$_vite_marker_val" != "$_VITE_BASE" ]; then
+            _NEED_FRONTEND_BUILD=true
+        fi
+    fi
 fi
 fi  # end SKIP_STUDIO_FRONTEND guard
 
@@ -563,6 +603,10 @@ fi
 
 # ── Build frontend ──
 substep "building frontend..."
+if [ "$_VITE_BASE" != "/" ]; then
+    substep "Vite base path: $_VITE_BASE (reverse-proxy subpath)"
+fi
+export VITE_BASE_PATH="$_VITE_BASE"
 cd "$SCRIPT_DIR/frontend"
 _HIDDEN_GITIGNORES=()
 _dir="$(pwd)"
@@ -640,6 +684,8 @@ if [ "$_bun_install_ok" = false ]; then
     fi
 fi
 run_quiet "npm run build" npm run build
+
+printf '%s' "$_VITE_BASE" > "$SCRIPT_DIR/frontend/dist/.vite-base"
 
 _restore_gitignores
 trap - EXIT

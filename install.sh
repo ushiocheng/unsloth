@@ -11,7 +11,9 @@
 #   curl -fsSL https://unsloth.ai/install.sh | UNSLOTH_NO_TORCH=1 sh    # skip PyTorch (GGUF-only)
 #   curl -fsSL https://unsloth.ai/install.sh | UNSLOTH_PYTHON=3.12 sh   # pin Python version
 #   curl -fsSL https://unsloth.ai/install.sh | UNSLOTH_STUDIO_HOME=/abs/path sh
+#   curl -fsSL https://unsloth.ai/install.sh | VITE_BASE_PATH=/unsloth/ sh  # reverse-proxy subpath
 # Equivalent flags: ./install.sh --no-torch --python 3.12  (or pipe them: sh -s -- --no-torch)
+#   ./install.sh --local --vite-base-path /unsloth/
 #
 # Install dir priority: UNSLOTH_STUDIO_HOME > STUDIO_HOME (alias) > $HOME/.unsloth/studio
 #
@@ -51,8 +53,10 @@ _USER_PYTHON=""
 _NO_TORCH_FLAG=false
 _VERBOSE=false
 _SHORTCUTS_ONLY=false
+_VITE_BASE_PATH=""
 _next_is_package=false
 _next_is_python=false
+_next_is_vite_base_path=false
 for arg in "$@"; do
     if [ "$_next_is_package" = true ]; then
         PACKAGE_NAME="$arg"
@@ -64,6 +68,11 @@ for arg in "$@"; do
         _next_is_python=false
         continue
     fi
+    if [ "$_next_is_vite_base_path" = true ]; then
+        _VITE_BASE_PATH="$arg"
+        _next_is_vite_base_path=false
+        continue
+    fi
     case "$arg" in
         --local) STUDIO_LOCAL_INSTALL=true ;;
         --package) _next_is_package=true ;;
@@ -72,12 +81,15 @@ for arg in "$@"; do
         --no-torch) _NO_TORCH_FLAG=true ;;
         --verbose|-v) _VERBOSE=true ;;
         --shortcuts-only) _SHORTCUTS_ONLY=true ;;
+        --vite-base-path) _next_is_vite_base_path=true ;;
     esac
 done
 
 # Env-var equivalents for piped installs; an explicit flag still wins.
 case "${UNSLOTH_NO_TORCH:-}" in 1|true|TRUE|yes|YES|on|ON) _NO_TORCH_FLAG=true ;; esac
 [ -z "$_USER_PYTHON" ] && [ -n "${UNSLOTH_PYTHON:-}" ] && _USER_PYTHON="$UNSLOTH_PYTHON"
+[ -z "$_VITE_BASE_PATH" ] && [ -n "${VITE_BASE_PATH:-}" ] && _VITE_BASE_PATH="$VITE_BASE_PATH"
+[ -z "$_VITE_BASE_PATH" ] && [ -n "${UNSLOTH_VITE_BASE_PATH:-}" ] && _VITE_BASE_PATH="$UNSLOTH_VITE_BASE_PATH"
 
 if [ "$_VERBOSE" = true ]; then
     export UNSLOTH_VERBOSE=1
@@ -2765,6 +2777,7 @@ if [ "$STUDIO_LOCAL_INSTALL" = true ]; then
     STUDIO_LOCAL_INSTALL=1 \
     STUDIO_LOCAL_REPO="$_REPO_ROOT" \
     UNSLOTH_NO_TORCH="$SKIP_TORCH" \
+    VITE_BASE_PATH="$_VITE_BASE_PATH" \
     bash "$SETUP_SH" </dev/null || _SETUP_EXIT=$?
 else
     # Explicitly reset STUDIO_LOCAL_INSTALL / STUDIO_LOCAL_REPO so a stale
@@ -2779,6 +2792,7 @@ else
     STUDIO_LOCAL_INSTALL=0 \
     STUDIO_LOCAL_REPO= \
     UNSLOTH_NO_TORCH="$SKIP_TORCH" \
+    VITE_BASE_PATH="$_VITE_BASE_PATH" \
     bash "$SETUP_SH" </dev/null || _SETUP_EXIT=$?
 fi
 
