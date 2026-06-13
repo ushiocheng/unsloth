@@ -2,6 +2,7 @@
 // Copyright 2026-present the Unsloth AI Inc. team. All rights reserved. See /studio/LICENSE.AGPL-3.0
 
 import { Link, createRouter, useRouterState } from "@tanstack/react-router";
+import { getApiBase } from "@/lib/api-base";
 import { Button } from "@/components/ui/button";
 import { MascotImg } from "@/components/mascot-img";
 import { useT } from "@/i18n";
@@ -58,9 +59,12 @@ function DefaultNotFound() {
   );
 }
 
+const routerBasepath = getApiBase() || undefined;
+
 export const router = createRouter({
   routeTree,
   defaultNotFoundComponent: DefaultNotFound,
+  ...(routerBasepath ? { basepath: routerBasepath } : {}),
 });
 
 declare module "@tanstack/react-router" {

@@ -16,6 +16,11 @@ const isViteDev = import.meta.env.DEV
 
 if (isTauri && !isViteDev) {
   apiBase = 'http://127.0.0.1:8888'
+} else {
+  const base = import.meta.env.BASE_URL ?? '/'
+  if (base !== '/') {
+    apiBase = base.replace(/\/$/, '')
+  }
 }
 
 const initialApiBase = apiBase
